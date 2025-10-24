@@ -9,28 +9,35 @@ import schwab
 from schwab.auth import easy_client
 from schwab.client import Client
 import dotenv
+
 dotenv.load_dotenv()
 # --- Config ---
 EQUITY_ASSET_TYPES = {"EQUITY", "ETF", "MUTUAL_FUND"}  # price history supported per docs
 TRD_TYPES_INCLUDE = {"TRADE"}
 DIV_TYPES_INCLUDE = {"DIVIDEND_OR_INTEREST"}  # count as return, not external flow
 CASHFLOW_TYPES = {  # exclude from return via TWR adjustment
-    "ACH_RECEIPT","ACH_DISBURSEMENT","CASH_RECEIPT","CASH_DISBURSEMENT",
-    "ELECTRONIC_FUND","WIRE_IN","WIRE_OUT","JOURNAL","MARGIN_CALL","MONEY_MARKET","RECEIVE_AND_DELIVER","SMA_ADJUSTMENT","MEMORANDUM"
+    "ACH_RECEIPT", "ACH_DISBURSEMENT", "CASH_RECEIPT", "CASH_DISBURSEMENT",
+    "ELECTRONIC_FUND", "WIRE_IN", "WIRE_OUT", "JOURNAL", "MARGIN_CALL", "MONEY_MARKET", "RECEIVE_AND_DELIVER",
+    "SMA_ADJUSTMENT", "MEMORANDUM"
 }
 
 
 def build_client():
-    key = os.environ.get("SCHWAB_API_KEY"); secret = os.environ.get("SCHWAB_APP_SECRET")
-    cb = os.environ.get("SCHWAB_CALLBACK_URL","https://127.0.0.1:8182")
-    tok = os.environ.get("SCHWAB_TOKEN_PATH","./schwab_token.json")
+    key = os.environ.get("SCHWAB_API_KEY");
+    secret = os.environ.get("SCHWAB_APP_SECRET")
+    cb = os.environ.get("SCHWAB_CALLBACK_URL", "https://127.0.0.1:8182")
+    tok = os.environ.get("SCHWAB_TOKEN_PATH", "./schwab_token.json")
     if not key or not secret:
-        print("Set SCHWAB_API_KEY and SCHWAB_APP_SECRET.", file=sys.stderr); sys.exit(1)
+        print("Set SCHWAB_API_KEY and SCHWAB_APP_SECRET.", file=sys.stderr);
+        sys.exit(1)
     return easy_client(api_key=key, app_secret=secret, callback_url=cb, token_path=tok)
 
+
 def get_account_hashes(c: Client):
-    r = c.get_account_numbers(); r.raise_for_status()
+    r = c.get_account_numbers();
+    r.raise_for_status()
     return [x["hashValue"] for x in r.json()]
+
 
 def get_equity_positions_now(c: Client) -> pd.Series:
     """Return current equity/ETF quantity per symbol across all accounts."""
@@ -41,7 +48,7 @@ def get_equity_positions_now(c: Client) -> pd.Series:
         for p in (acct.get("securitiesAccount", {}) or {}).get("positions", []) or []:
             inst = p.get("instrument", {}) or {}
             at = (inst.get("assetType") or "").upper()
-            t  = (inst.get("type") or "").upper()
+            t = (inst.get("type") or "").upper()
             is_equity = at == "EQUITY"
             is_etf = at == "COLLECTIVE_INVESTMENT" and t == "EXCHANGE_TRADED_FUND"
             if not (is_equity or is_etf):
@@ -79,7 +86,9 @@ def group_percentages(qty: pd.DataFrame, px: pd.DataFrame, groups: dict, port_va
     pct = (grp_val.div(port_val.replace(0, np.nan), axis=0) * 100.0).fillna(0.0)
     return pct
 
-def plot_group_percentages(pct_df: pd.DataFrame, title: str = "Portfolio allocation by group (%)", outfile: str | None = None):
+
+def plot_group_percentages(pct_df: pd.DataFrame, title: str = "Portfolio allocation by group (%)",
+                           outfile: str | None = None):
     plt.figure(figsize=(12, 6))
     for col in pct_df.columns:
         plt.plot(pct_df.index, pct_df[col], label=col)
@@ -101,6 +110,7 @@ def windowed(start_dt: datetime, end_dt: datetime, days=60):
         yield cur, nxt
         cur = nxt
 
+
 def pull_transactions(c: Client, account_hash: str, start: datetime, end: datetime):
     # Iterate 60-day windows per Schwab API constraint. :contentReference[oaicite:1]{index=1}
     all_tx = []
@@ -109,6 +119,7 @@ def pull_transactions(c: Client, account_hash: str, start: datetime, end: dateti
         rr.raise_for_status()
         all_tx.extend(rr.json() or [])
     return all_tx
+
 
 def parse_trade(tx):
     """
@@ -153,6 +164,7 @@ def parse_trade(tx):
             out.append((sym, qty, d))
     return out
 
+
 def collect_activity(c: Client, acct_hashes, lookback_days: int):
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=lookback_days + 5)  # buffer
@@ -168,7 +180,7 @@ def collect_activity(c: Client, acct_hashes, lookback_days: int):
             elif ttype in DIV_TYPES_INCLUDE:
                 amt = 0
                 for ti in (tx.get("transferItems") or []):
-                    amt+= float(ti.get("amount") or 0.0)
+                    amt += float(ti.get("amount") or 0.0)
                 dte = pd.to_datetime(tx.get("tradeDate") or tx.get("settlementDate")).date()
                 # treat dividend as return cash on that date
                 dividends.append((dte, amt))
@@ -177,10 +189,14 @@ def collect_activity(c: Client, acct_hashes, lookback_days: int):
                 amt = float(tx.get("netAmount") or tx.get("amount") or 0.0)
                 dte = pd.to_datetime(tx.get("tradeDate") or tx.get("settlementDate")).date()
                 cashflows.append((dte, amt))
-    tr_df = pd.DataFrame(trades, columns=["date","symbol","dqty", "account_hash"]) if trades else pd.DataFrame(columns=["date","symbol","dqty", "account_hash"])
-    dv_df = pd.DataFrame(dividends, columns=["date","amount"]) if dividends else pd.DataFrame(columns=["date","amount"])
-    cf_df = pd.DataFrame(cashflows, columns=["date","amount"]) if cashflows else pd.DataFrame(columns=["date","amount"])
+    tr_df = pd.DataFrame(trades, columns=["date", "symbol", "dqty", "account_hash"]) if trades else pd.DataFrame(
+        columns=["date", "symbol", "dqty", "account_hash"])
+    dv_df = pd.DataFrame(dividends, columns=["date", "amount"]) if dividends else pd.DataFrame(
+        columns=["date", "amount"])
+    cf_df = pd.DataFrame(cashflows, columns=["date", "amount"]) if cashflows else pd.DataFrame(
+        columns=["date", "amount"])
     return tr_df, dv_df, cf_df
+
 
 def get_price_panel(c: Client, symbols, start_dt: datetime, end_dt: datetime):
     frames = []
@@ -193,9 +209,10 @@ def get_price_panel(c: Client, symbols, start_dt: datetime, end_dt: datetime):
         if not cds: continue
         df = pd.DataFrame(cds)
         df["date"] = pd.to_datetime(df["datetime"], unit="ms", utc=True).dt.tz_convert("UTC").dt.date
-        frames.append(df[["date","close"]].rename(columns={"close": sym}).drop_duplicates("date").set_index("date"))
+        frames.append(df[["date", "close"]].rename(columns={"close": sym}).drop_duplicates("date").set_index("date"))
     if not frames: return pd.DataFrame()
     return pd.concat(frames, axis=1).sort_index()
+
 
 def rebuild_quantity_matrix(trades_df: pd.DataFrame, date_index: pd.Index, baseline_qty: pd.Series | None = None):
     """
@@ -216,12 +233,11 @@ def rebuild_quantity_matrix(trades_df: pd.DataFrame, date_index: pd.Index, basel
     pivot = (
         trades_df.pivot_table(
             index="date", columns="symbol", values="dqty",
-            aggfunc="sum", fill_value=0.0       # <- key fix
+            aggfunc="sum", fill_value=0.0  # <- key fix
         ).reindex(date_index, fill_value=0.0)
         if not trades_df.empty else pd.DataFrame(0.0, index=date_index, columns=[])
     )
     pivot = pivot.astype(float)  # optional, keeps math clean
-
 
     qty = pivot.cumsum()  # safe because pivot has no NaNs
 
@@ -231,29 +247,15 @@ def rebuild_quantity_matrix(trades_df: pd.DataFrame, date_index: pd.Index, basel
         qty = qty.add(baseline_qty.reindex(qty.columns).fillna(0.0), axis="columns")
     return qty
 
+
 def show_equity_portfolio_percentage_plot(qty, px, port_val, args):
-    """equities_to_show = {
-        "META": ["META"],
-        #"VOO+SPY+SCHX": ["VOO", "SPY", "SCHX"],  # bundled
-        "SCHX": ["SCHX"],
-        "NVDA": ["NVDA"],
-        "IBIT": ["IBIT"],
-        "BA": ["BA"],
-        "GOOGL": ["GOOGL"],
-        "MSFT": ["MSFT"],
-        "UNH": ["UNH"],
-        "QTUM": ["QTUM"],
-        "URNM": ["URNM"],
-        "CEG": ["CEG"],
-        "RGTI": ["RGTI"],
-    }"""
     # get top 10 holdings by % allocation at the end date excluding anything with above 20% allocation
     equities_to_show = {}
     if port_val.empty:
         return
     latest_date = port_val.index[-1]
     latest_val_by_sym = (qty.loc[latest_date] * px.loc[latest_date
-]).fillna(0.0)
+    ]).fillna(0.0)
     latest_pct_by_sym = (latest_val_by_sym / port_val.loc[latest_date]).fillna(1.0) * 100.0
     top_syms = latest_pct_by_sym[latest_pct_by_sym < 20.0].sort_values(ascending=False).head(10).index.tolist()
     for sym in top_syms:
@@ -265,8 +267,9 @@ def show_equity_portfolio_percentage_plot(qty, px, port_val, args):
         plot_group_percentages(pct_df, outfile=args.plot)
     else:
         # Print a compact JSON preview for verification
-        preview = pct_df.tail(5).round(2).reset_index().rename(columns={"index":"date"})
-        print(json.dumps({"allocation_pct_last5": preview.reset_index().to_dict(orient="records")}, indent=2, default=str))
+        preview = pct_df.tail(5).round(2).reset_index().rename(columns={"index": "date"})
+        print(json.dumps({"allocation_pct_last5": preview.reset_index().to_dict(orient="records")}, indent=2,
+                         default=str))
 
 
 def compute_twr_daily(port_val, ext_flows):
@@ -276,10 +279,12 @@ def compute_twr_daily(port_val, ext_flows):
     r = (pv.diff() - ext) / pv.shift(1)
     return r.dropna()
 
+
 def sharpe_from_daily(excess_daily):
     mu = excess_daily.mean()
     sd = excess_daily.std(ddof=1)
     return math.sqrt(252) * (mu / sd) if sd > 0 else float("nan")
+
 
 # since the transactions api doesnt include info about how many shares left after a transaction, impossible to reconstruct baseline from txns alone
 # So, we combine today's positions along with all of the info we can gather about the state of the account at the lookback start date
@@ -290,7 +295,8 @@ def build_baseline(c, acct_hashes, trades_df):
         account = c.get_account(ah, fields=schwab.client.Client.Account.Fields.POSITIONS).json()
         positions = account['securitiesAccount']['positions']
         for position in filter(lambda p: 'instrument' in p and p['instrument']['assetType'] == "EQUITY" or \
-            p['instrument']['assetType'] == "COLLECTIVE_INVESTMENT" and p['instrument']['type'] == "EXCHANGE_TRADED_FUND"
+                                         p['instrument']['assetType'] == "COLLECTIVE_INVESTMENT" and p['instrument'][
+                                             'type'] == "EXCHANGE_TRADED_FUND"
                 , positions):
             netQuantity = position['longQuantity'] - position['shortQuantity']
             symbol = position['instrument']['symbol']
@@ -311,10 +317,11 @@ def build_baseline(c, acct_hashes, trades_df):
     return pd.Series(baseline_qty, dtype=float)
 
 
-
 def main():
-    ap = argparse.ArgumentParser(description="Compute Sharpe ratio using Schwab transactions (position changes handled).")
-    ap.add_argument("--lookback", type=int, default=365, help="Calendar days back to scan transactions and prices. Default 252.")
+    ap = argparse.ArgumentParser(
+        description="Compute Sharpe ratio using Schwab transactions (position changes handled).")
+    ap.add_argument("--lookback", type=int, default=365,
+                    help="Calendar days back to scan transactions and prices. Default 252.")
     ap.add_argument("--rf", type=float, default=0.02, help="Annual risk-free (e.g., 0.02 = 2%).")
     ap.add_argument("--plot", type=str, default="", help="Path to save PNG of allocation lines")
     args = ap.parse_args()
@@ -327,7 +334,7 @@ def main():
     start_dt = end_dt - timedelta(days=args.lookback + 5)
 
     # --- after collecting activity ---
-    trades_df, div_df, cash_df = collect_activity(c, acct_hashes, lookback_days=args.lookback+5)
+    trades_df, div_df, cash_df = collect_activity(c, acct_hashes, lookback_days=args.lookback + 5)
     # 1) Baseline shares at the lookback start: positions_now - net_changes_in_window
     positions_now = get_equity_positions_now(c)  # equities + ETFs only
     net_changes = (trades_df.groupby("symbol")["dqty"].sum() if not trades_df.empty else pd.Series(dtype=float))
@@ -337,14 +344,17 @@ def main():
     baseline_qty = build_baseline(c, acct_hashes, trades_df)
 
     # 2) Build the symbol universe for PRICES = baseline ∪ traded
-    symbols_for_px = sorted(set(baseline_qty.index.tolist()) | set(trades_df["symbol"].tolist() if not trades_df.empty else []))
+    symbols_for_px = sorted(
+        set(baseline_qty.index.tolist()) | set(trades_df["symbol"].tolist() if not trades_df.empty else []))
     if not symbols_for_px:
-        print(json.dumps({"error": "No equity symbols to value."}, indent=2)); sys.exit(0)
+        print(json.dumps({"error": "No equity symbols to value."}, indent=2));
+        sys.exit(0)
 
     # 3) Download prices for the full universe so baseline quantities are revalued daily
     px = get_price_panel(c, symbols_for_px, start_dt, end_dt)
     if px.empty:
-        print(json.dumps({"error":"No price history for symbols."}, indent=2)); sys.exit(1)
+        print(json.dumps({"error": "No price history for symbols."}, indent=2));
+        sys.exit(1)
 
     dates = px.index
     # 4) Rebuild daily quantities = baseline_at_start + cumulative trade deltas
@@ -353,7 +363,6 @@ def main():
     # 5) Value portfolio using the full price panel (captures price moves of baseline holdings)
     val_by_sym = (qty * px)
     port_val = val_by_sym.sum(axis=1)
-
 
     # External flows per day (exclude dividends). Sum by date.
     ext_flows = cash_df.groupby("date")["amount"].sum() if not cash_df.empty else pd.Series(dtype=float)
@@ -370,7 +379,7 @@ def main():
 
     daily_ret_twr = compute_twr_daily(port_val_adj, ext_flows)
 
-    rf_daily = (1 + args.rf) ** (1/252) - 1
+    rf_daily = (1 + args.rf) ** (1 / 252) - 1
     sharpe = sharpe_from_daily(daily_ret_twr - rf_daily)
 
     out = {
@@ -384,6 +393,7 @@ def main():
 
     print(json.dumps(out, indent=2))
     show_equity_portfolio_percentage_plot(qty, px, port_val, args)
+
 
 if __name__ == "__main__":
     main()
